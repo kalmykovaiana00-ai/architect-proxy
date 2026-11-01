@@ -33,26 +33,40 @@ export default async function handler(req, res) {
     }
     `;
 
-    const apiRes = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.8-flash:generateContent?key=${GEMINI_KEY}`,
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          contents: [{
-            parts: [
-              { text: prompt },
-              { inlineData: { mimeType: mimeType || "image/jpeg", data: imageBase64 } }
-            ]
-          }],
-          generationConfig: {
-            responseMimeType: "application/json"
-          }
-        })
-      }
-    );
+    const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
-    const data = await apiRes.json();
+    let data = null;
+    let apiRes = null;
+    const maxRetries = 3;
+
+    for (let attempt = 1; attempt <= maxRetries; attempt++) {
+      apiRes = await fetch(
+        `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.8-flash:generateContent?key=${GEMINI_KEY}`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            contents: [{
+              parts: [
+                { text: prompt },
+                { inlineData: { mimeType: mimeType || "image/jpeg", data: imageBase64 } }
+              ]
+            }],
+            generationConfig: {
+              responseMimeType: "application/json"
+            }
+          })
+        }
+      );
+
+      data = await apiRes.json();
+
+      if (apiRes.ok && !data.error) break;
+
+      if (attempt < maxRetries && (apiRes.status === 503 || apiRes.status === 429 || data.error?.message?.includes("demand"))) {
+        await sleep(2000);
+      }
+    }
 
     if (!apiRes.ok || data.error) {
       const errMsg = data.error?.message || JSON.stringify(data.error || data);
